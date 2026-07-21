@@ -1,12 +1,19 @@
 changelog:
   categories:
     - title: Features
-      labels: [enhancement, feature]
+      labels:
+        - enhancement
+        - feature
     - title: Fixes
-      labels: [bug, fix]
+      labels:
+        - bug
+        - fix
     - title: Documentation
-      labels: [documentation]
+      labels:
+        - documentation
     - title: Dependencies
-      labels: [dependencies]
+      labels:
+        - dependencies
     - title: Other Changes
-      labels: ['*']
+      labels:
+        - "*"
