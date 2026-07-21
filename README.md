@@ -25,23 +25,19 @@ A responsive, mobile-first web interface for [cmux](https://cmux.com). It mirror
   </table>
 </div>
 
-## Why it exists
-
-Running many coding agents as cmux workspaces on one Mac, the bottleneck is human input: agents pause on questions, permission prompts, and plan approvals. Away from the desk there is no good way to see which agent is blocked and act on it. cmux exposes a complete control API over a local Unix socket, so a thin, authenticated web client is enough. cmux-web is that client. It stays cmux native: it only uses what the cmux socket provides and adds no external tooling.
-
 ## Features
 
-- Triage list of workspace groups and workspaces, with the ones that need input floated to the top and unread counts shown.
-- Live status per workspace (idle, running, needs input), shown by colour, icon, and label, updated in real time without manual refresh.
-- Search across all workspaces, collapsible groups, and a connected grouped list.
-- Live terminal view in the workspace's true colours, matching the native cmux terminal. It opens at the latest line, auto-follows the tail, offers a jump-to-bottom control, and has an A-/A+ font size control.
-- Pane and tab switcher for workspaces with splits and multiple surfaces; tapping a tab shows that surface's terminal.
-- A single input. On an agent surface it submits to the agent; in a shell it types the command and runs it. A key toolbar sends Enter, Esc, Ctrl-C, Tab, and arrows.
-- Slash-command autocomplete for the detected agent (Claude Code, Codex, OpenCode, Gemini, Grok, Amp, Cursor, Copilot, Pi, Kiro), shown as you type "/".
-- Inline replies to pending questions, permission prompts (with a two-tap confirm to approve), and plans.
-- Hide-content mode blurs terminal text and previews that may hold secrets, and reveals them on tap.
-- Light and dark themes (auto plus toggle), safe-area aware. Add it to your phone's home screen and it launches full screen as a standalone app, with no browser chrome.
-- Password auth gate for exposure over Tailscale.
+- Workspace triage: groups and workspaces sorted so agents needing input float to the top, with unread badges.
+- Live status (idle, running, needs input) by colour, icon, and label, updated in real time.
+- Search and collapsible groups.
+- True-colour live terminal matching cmux, auto-following the tail, with jump-to-bottom and A-/A+ font sizing.
+- Pane and tab switching for splits and multiple surfaces.
+- One input that submits to the agent or types into a shell, plus a key toolbar (Enter, Esc, Ctrl-C, Tab, arrows).
+- Slash-command autocomplete for the detected agent (Claude Code, Codex, OpenCode, Gemini, Grok, Amp, Cursor, Copilot, Pi, Kiro).
+- Inline replies to questions, permission prompts, and plans.
+- Hide-content mode to blur secrets, revealed on tap.
+- Light and dark themes; installs from the home screen as a full-screen PWA.
+- Password auth gate for Tailscale exposure.
 
 ## How it works
 
