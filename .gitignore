@@ -18,3 +18,4 @@ todos.json
 .env
 
 settings.local.json
+.tailnet-run/

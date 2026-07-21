@@ -5,7 +5,12 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENTRY="$DIR/.output/server/index.mjs"
+BUILD="$DIR/.output"
+# The server runs from a snapshot of the build, not .output directly, so a later
+# `pnpm build` (which rewrites .output with new content-hashed chunk names)
+# cannot orphan a running server with ERR_MODULE_NOT_FOUND.
+RUNDIR="$DIR/.tailnet-run"
+ENTRY="$RUNDIR/server/index.mjs"
 PIDFILE="$DIR/.tailnet.pid"
 LOGFILE="$DIR/.tailnet.log"
 
@@ -31,7 +36,7 @@ running() {
 }
 
 start() {
-  if [ ! -f "$ENTRY" ]; then
+  if [ ! -f "$BUILD/server/index.mjs" ]; then
     echo "No build found. Run: pnpm build" >&2
     exit 1
   fi
@@ -48,6 +53,11 @@ start() {
     echo "         Continuing in 3s (Ctrl-C to abort)..."
     sleep 3
   fi
+
+  # Snapshot the current build so it is isolated from later rebuilds.
+  rm -rf "$RUNDIR"
+  mkdir -p "$RUNDIR"
+  cp -R "$BUILD/." "$RUNDIR/"
 
   HOST="$HOST" PORT="$PORT" nohup node "$ENTRY" >"$LOGFILE" 2>&1 &
   echo $! >"$PIDFILE"
@@ -74,7 +84,8 @@ stop() {
     kill "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null || true
     rm -f "$PIDFILE"
   fi
-  pkill -f "$ENTRY" 2>/dev/null || true
+  pkill -f "$RUNDIR/server/index.mjs" 2>/dev/null || true
+  rm -rf "$RUNDIR"
   echo "Stopped cmux-web and cleared tailscale serve."
 }
 
