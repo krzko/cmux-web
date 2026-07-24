@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, redirect } from '@tanstack/react-router'
 import { AlertTriangle, ArrowLeft } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppBar } from '#/components/AppBar'
+import { ChatView } from '#/components/ChatView'
 import { HideContentToggle } from '#/components/HideContentToggle'
 import { InputBar } from '#/components/InputBar'
 import { PendingPanel } from '#/components/PendingPanel'
@@ -10,9 +11,13 @@ import { StatusIndicator } from '#/components/StatusIndicator'
 import { SurfaceTabs } from '#/components/SurfaceTabs'
 import { TerminalView } from '#/components/TerminalView'
 import { ThemeToggle } from '#/components/ThemeToggle'
+import { type ViewMode, ViewToggle } from '#/components/ViewToggle'
+import type { Chat, ChatMessage } from '#/domain/entities/chat'
 import type { TerminalKey } from '#/domain/entities/interaction'
 import { isAgentBound, resolveAgent } from '#/domain/services/agent-registry'
 import { defaultSurface, groupSurfacesByPane } from '#/domain/services/layout'
+import { toChat } from '#/domain/services/transcript'
+import { mergeTranscript } from '#/domain/services/transcript-merge'
 import { useEventStream } from '#/hooks/use-event-stream'
 import { cleanTitle } from '#/lib/format'
 import { queryKeys } from '#/lib/query-keys'
@@ -44,6 +49,8 @@ export const Route = createFileRoute('/w/$ref')({
   component: DetailPage,
 })
 
+const VIEW_KEY = 'cmux:view-mode'
+
 function DetailPage() {
   const { ref } = Route.useParams()
   const queryClient = useQueryClient()
@@ -54,6 +61,16 @@ function DetailPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedSurfaceId, setSelectedSurfaceId] = useState<string>()
+  // Chat vs terminal rendering of the same transcript; the choice is remembered.
+  const [viewMode, setViewMode] = useState<ViewMode>('terminal')
+  useEffect(() => {
+    const stored = localStorage.getItem(VIEW_KEY)
+    if (stored === 'chat' || stored === 'terminal') setViewMode(stored)
+  }, [])
+  const changeView = (mode: ViewMode) => {
+    setViewMode(mode)
+    localStorage.setItem(VIEW_KEY, mode)
+  }
 
   const triage = useQuery({
     queryKey: queryKeys.triage,
@@ -106,6 +123,33 @@ function DetailPage() {
     refetchIntervalInBackground: false,
   })
 
+  // Chat history accumulates across polls: cmux returns only the current screen
+  // (no terminal scrollback for alternate-screen agents), so each snapshot is
+  // stitched into a growing transcript. Reset when the shown surface changes.
+  const chat = useMemo(() => toChat(terminal.data), [terminal.data])
+  const surfaceKey = `${ref}:${selected?.id ?? 'ws'}`
+  const historyRef = useRef<{ key: string; msgs: ChatMessage[] }>({
+    key: '',
+    msgs: [],
+  })
+  const [chatHistory, setChatHistory] = useState<Chat>({ messages: [] })
+  useEffect(() => {
+    const snapshot = chat.messages
+    const status = snapshot.filter((m) => m.role === 'status').slice(-1)
+    if (historyRef.current.key !== surfaceKey) {
+      historyRef.current = {
+        key: surfaceKey,
+        msgs: snapshot.filter((m) => m.role !== 'status'),
+      }
+    } else {
+      historyRef.current.msgs = mergeTranscript(
+        historyRef.current.msgs,
+        snapshot,
+      )
+    }
+    setChatHistory({ messages: [...historyRef.current.msgs, ...status] })
+  }, [chat, surfaceKey])
+
   async function refreshTerminal() {
     setRefreshing(true)
     try {
@@ -153,9 +197,10 @@ function DetailPage() {
   const title = workspace ? cleanTitle(workspace.title) : ref
 
   return (
-    // Fixed viewport height so the terminal is its own bounded scroll region
-    // (page-level scroll would open at the top and never follow the tail).
-    <div className="flex h-dvh flex-col overflow-hidden">
+    // Stable viewport height (svh, not dvh) so the shell does not resize as the
+    // mobile browser chrome shows/hides; the panel below is the only scroller, so
+    // the page never moves and the region follows the tail.
+    <div className="flex h-svh flex-col overflow-hidden">
       <AppBar
         title={
           <span className="flex items-center gap-2">
@@ -216,11 +261,22 @@ function DetailPage() {
           }
         />
 
-        <TerminalView
-          grid={terminal.data}
-          loading={refreshing || terminal.isLoading}
-          onRefresh={refreshTerminal}
-        />
+        {viewMode === 'chat' ? (
+          <ChatView
+            chat={chatHistory}
+            grid={terminal.data}
+            loading={refreshing || terminal.isLoading}
+            onRefresh={refreshTerminal}
+            toggle={<ViewToggle mode={viewMode} onChange={changeView} />}
+          />
+        ) : (
+          <TerminalView
+            grid={terminal.data}
+            loading={refreshing || terminal.isLoading}
+            onRefresh={refreshTerminal}
+            toggle={<ViewToggle mode={viewMode} onChange={changeView} />}
+          />
+        )}
       </main>
 
       <InputBar

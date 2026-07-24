@@ -222,6 +222,24 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
   overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Chat bubbles: prose wraps to width, tool/code keeps alignment and scrolls. */
+.chat-prose {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+/* Reflowed assistant paragraphs flow and wrap to the screen, not terminal width. */
+.chat-flow {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.chat-pre {
+  white-space: pre;
+  overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
 
