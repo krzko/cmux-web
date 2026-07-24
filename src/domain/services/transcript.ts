@@ -1,7 +1,14 @@
-import type { Chat, ChatMessage, ChatRole } from '#/domain/entities/chat'
+import type {
+  Chat,
+  ChatLine,
+  ChatMessage,
+  ChatRole,
+  ChatStyle,
+} from '#/domain/entities/chat'
 import type {
   TerminalGrid,
   TerminalLine,
+  TerminalStyle,
 } from '#/domain/entities/terminal-grid'
 
 // Turns a captured terminal grid into chat messages. cmux has no conversation
@@ -20,6 +27,74 @@ export function lineText(line: TerminalLine): string {
     cursor = span.col + (span.width || span.text.length)
   }
   return out.replace(/\s+$/, '')
+}
+
+// Resolve a terminal style into a self-contained chat style. Default-foreground
+// text carries no colour so it inherits the app's readable text colour; only
+// real ANSI colours and text weight/decoration are kept (bg/inverse dropped so
+// prose stays clean). Returns undefined when nothing notable is set.
+function toChatStyle(
+  st: TerminalStyle | undefined,
+  defaultFg: string,
+): ChatStyle | undefined {
+  if (!st) return undefined
+  const style: ChatStyle = {}
+  if (st.fg && st.fg.toLowerCase() !== defaultFg.toLowerCase())
+    style.color = st.fg
+  if (st.bold) style.bold = true
+  if (st.faint) style.faint = true
+  if (st.italic) style.italic = true
+  if (st.underline) style.underline = true
+  if (st.strike) style.strike = true
+  return Object.keys(style).length ? style : undefined
+}
+
+// Styled runs for a line, with column gaps baked in as unstyled space runs.
+function toRuns(
+  line: TerminalLine,
+  styles: TerminalStyle[],
+  defaultFg: string,
+): ChatLine {
+  const runs: ChatLine = []
+  let cursor = 0
+  for (const span of [...line].sort((a, b) => a.col - b.col)) {
+    if (span.col > cursor) runs.push({ text: ' '.repeat(span.col - cursor) })
+    runs.push({
+      text: span.text,
+      style: toChatStyle(styles[span.style], defaultFg),
+    })
+    cursor = span.col + (span.width || span.text.length)
+  }
+  return runs
+}
+
+function runsText(line: ChatLine): string {
+  return line
+    .map((r) => r.text)
+    .join('')
+    .replace(/\s+$/, '')
+}
+
+// Drop leading characters matching `re` from a styled line, crossing runs.
+function stripLead(line: ChatLine, re: RegExp): ChatLine {
+  const match = line
+    .map((r) => r.text)
+    .join('')
+    .match(re)
+  if (!match?.[0]) return line
+  let n = match[0].length
+  const out: ChatLine = []
+  for (const run of line) {
+    if (n <= 0) {
+      out.push(run)
+    } else if (run.text.length <= n) {
+      n -= run.text.length
+    } else {
+      out.push({ text: run.text.slice(n), style: run.style })
+      n = 0
+    }
+  }
+  return out
 }
 
 const RULE = /^[\s─━═╌╍┄┅┈┉│┃▁▔]+$/
@@ -75,7 +150,11 @@ function toolLabel(text: string): string {
 export function toChat(grid: TerminalGrid | undefined): Chat {
   if (!grid || grid.lines.length === 0) return { messages: [] }
 
-  const items = grid.lines.map((line) => ({ line, text: lineText(line) }))
+  const fg = grid.foreground
+  const items = grid.lines.map((line) => ({
+    line: toRuns(line, grid.styles, fg),
+    text: lineText(line),
+  }))
 
   // Drop the trailing input box + footer, then any leading blank run.
   let end = items.length
@@ -94,27 +173,27 @@ export function toChat(grid: TerminalGrid | undefined): Chat {
   const flush = () => {
     const cur = s.current
     if (cur?.lines.length) {
-      const strip = cur.role === 'user' ? /^\s*>\s?/ : /^$/
-      cur.text = cur.lines
-        .map((l) => lineText(l).replace(strip, ''))
-        .join('\n')
-        .replace(/\n+$/, '')
+      // Strip the role marker from the styled lines so it never renders.
+      if (cur.role === 'user') {
+        cur.lines[0] = stripLead(cur.lines[0], /^\s*>\s?/)
+      } else if (cur.role === 'agent') {
+        cur.lines[0] = stripLead(cur.lines[0], /^\s*[●⏺◉]\s+/)
+      } else if (cur.role === 'tool') {
+        cur.lines[0] = stripLead(cur.lines[0], /^\s*[●⏺◉]\s+/)
+        cur.lines = cur.lines.map((l) => stripLead(l, /^\s*⎿\s?/))
+      }
+      cur.text = cur.lines.map(runsText).join('\n').replace(/\n+$/, '')
       messages.push(cur)
     }
     s.current = null
     s.pendingBlank = false
   }
 
-  const open = (
-    i: number,
-    role: ChatRole,
-    line: TerminalLine,
-    label?: string,
-  ) => {
+  const open = (i: number, role: ChatRole, line: ChatLine, label?: string) => {
     flush()
     s.current = { id: `m${i}`, role, label, lines: [line], text: '' }
   }
-  const append = (line: TerminalLine) => {
+  const append = (line: ChatLine) => {
     if (!s.current) return
     if (s.pendingBlank) s.current.lines.push([])
     s.pendingBlank = false

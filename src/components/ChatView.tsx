@@ -1,6 +1,11 @@
 import { Clock, Loader2, RefreshCw, SquareTerminal } from 'lucide-react'
-import type { ReactNode } from 'react'
-import type { Chat, ChatMessage } from '#/domain/entities/chat'
+import type { CSSProperties, ReactNode } from 'react'
+import type {
+  Chat,
+  ChatLine,
+  ChatMessage,
+  ChatStyle,
+} from '#/domain/entities/chat'
 import type { TerminalGrid } from '#/domain/entities/terminal-grid'
 import { useFollowTail } from '#/hooks/use-follow-tail'
 import { useHideContent } from '#/hooks/use-hide-content'
@@ -9,8 +14,8 @@ import { JumpToBottom } from './JumpToBottom'
 
 // Chat rendering of the captured transcript. Assistant turns flow as prose,
 // commands and their output sit in code cards, and the user's own messages are
-// accent bubbles, so it reads like a chat rather than a terminal. Roles are
-// inferred (no conversation API) and degrade to plain agent prose.
+// accent bubbles, so it reads like a chat rather than a terminal. The terminal's
+// colours and bold are kept per span; roles are inferred (no conversation API).
 export function ChatView({
   chat,
   grid,
@@ -86,12 +91,43 @@ export function ChatView({
   )
 }
 
-const stripBullet = (t: string) => t.replace(/^\s*[●⏺◉]\s+/, '')
-const cleanTool = (t: string) =>
-  t
-    .split('\n')
-    .map((l) => l.replace(/^\s*[●⏺◉]\s+/, '').replace(/^\s*⎿\s?/, ''))
-    .join('\n')
+function runCss(style?: ChatStyle): CSSProperties {
+  if (!style) return {}
+  const css: CSSProperties = {}
+  if (style.color) css.color = style.color
+  if (style.bold) css.fontWeight = 700
+  if (style.faint) css.opacity = 0.6
+  if (style.italic) css.fontStyle = 'italic'
+  const decoration = [
+    style.underline ? 'underline' : '',
+    style.strike ? 'line-through' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+  if (decoration) css.textDecoration = decoration
+  return css
+}
+
+// Styled lines; a blank line is a small paragraph gap, not a full empty row.
+function StyledLines({ lines, pre }: { lines: ChatLine[]; pre?: boolean }) {
+  return (
+    <>
+      {lines.map((line, row) =>
+        line.length === 0 ? (
+          <div key={row} style={{ height: '0.4em' }} />
+        ) : (
+          <div key={row} className={pre ? 'chat-pre' : 'chat-prose'}>
+            {line.map((run, col) => (
+              <span key={col} style={runCss(run.style)}>
+                {run.text}
+              </span>
+            ))}
+          </div>
+        ),
+      )}
+    </>
+  )
+}
 
 function Bubble({ message }: { message: ChatMessage }) {
   if (message.role === 'status') {
@@ -149,7 +185,7 @@ function Bubble({ message }: { message: ChatMessage }) {
           <span className="truncate">{message.label ?? 'Tool'}</span>
         </div>
         <div
-          className="chat-pre px-3 py-2"
+          className="px-3 py-2"
           style={{
             fontFamily: 'var(--mono)',
             fontSize: '12px',
@@ -159,7 +195,7 @@ function Bubble({ message }: { message: ChatMessage }) {
             overflowY: 'auto',
           }}
         >
-          {cleanTool(message.text)}
+          <StyledLines lines={message.lines} pre />
         </div>
       </div>
     )
@@ -168,14 +204,9 @@ function Bubble({ message }: { message: ChatMessage }) {
   // Assistant prose: flows on the page like a chat message, no bubble chrome.
   return (
     <div
-      className="chat-prose"
-      style={{
-        color: 'var(--text)',
-        fontSize: '0.95rem',
-        lineHeight: 1.6,
-      }}
+      style={{ color: 'var(--text)', fontSize: '0.95rem', lineHeight: 1.55 }}
     >
-      {stripBullet(message.text)}
+      <StyledLines lines={message.lines} />
     </div>
   )
 }
