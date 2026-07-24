@@ -1,16 +1,16 @@
-import { Loader2, RefreshCw } from 'lucide-react'
+import { Clock, Loader2, RefreshCw, SquareTerminal } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { Chat, ChatMessage } from '#/domain/entities/chat'
 import type { TerminalGrid } from '#/domain/entities/terminal-grid'
 import { useFollowTail } from '#/hooks/use-follow-tail'
 import { useHideContent } from '#/hooks/use-hide-content'
 import { relativeTime } from '#/lib/format'
-import { renderLine } from '#/lib/terminal-render'
 import { JumpToBottom } from './JumpToBottom'
 
-// Chat rendering of the captured transcript: the same content as the terminal,
-// grouped into role bubbles with cmux's true colours. Roles are inferred (no
-// conversation API), so it degrades to a single agent bubble for unknown agents.
+// Chat rendering of the captured transcript. Assistant turns flow as prose,
+// commands and their output sit in code cards, and the user's own messages are
+// accent bubbles, so it reads like a chat rather than a terminal. Roles are
+// inferred (no conversation API) and degrade to plain agent prose.
 export function ChatView({
   chat,
   grid,
@@ -64,7 +64,7 @@ export function ChatView({
         <div
           ref={scrollRef}
           onScroll={onScroll}
-          className={`flex h-full flex-col gap-2.5 overflow-auto p-3 ${hidden ? 'redacted' : ''}`}
+          className={`flex h-full flex-col gap-3 overflow-auto px-3 py-4 ${hidden ? 'redacted' : ''}`}
           style={{ background: 'var(--surface)' }}
         >
           {empty ? (
@@ -72,8 +72,10 @@ export function ChatView({
               {loading ? 'Loading…' : 'No messages yet.'}
             </span>
           ) : (
-            chat.messages.map((m) => (
-              <Bubble key={m.id} message={m} grid={grid} />
+            chat.messages.map((m, i) => (
+              // Index key: accumulated history is append-mostly and messages can
+              // repeat ids across polled snapshots.
+              <Bubble key={i} message={m} />
             ))
           )}
         </div>
@@ -84,19 +86,22 @@ export function ChatView({
   )
 }
 
-function Bubble({
-  message,
-  grid,
-}: {
-  message: ChatMessage
-  grid?: TerminalGrid
-}) {
+const stripBullet = (t: string) => t.replace(/^\s*[●⏺◉]\s+/, '')
+const cleanTool = (t: string) =>
+  t
+    .split('\n')
+    .map((l) => l.replace(/^\s*[●⏺◉]\s+/, '').replace(/^\s*⎿\s?/, ''))
+    .join('\n')
+
+function Bubble({ message }: { message: ChatMessage }) {
   if (message.role === 'status') {
     return (
-      <div className="flex justify-center">
-        <span className="chip" style={{ maxWidth: '100%' }}>
-          <span className="truncate">{message.text}</span>
-        </span>
+      <div
+        className="flex items-center gap-1.5 text-xs"
+        style={{ color: 'var(--muted)' }}
+      >
+        <Clock size={12} style={{ flex: '0 0 auto' }} />
+        <span className="truncate">{message.text}</span>
       </div>
     )
   }
@@ -108,13 +113,13 @@ function Bubble({
           className="chat-prose"
           style={{
             maxWidth: '85%',
-            padding: '0.5rem 0.75rem',
-            borderRadius: 14,
-            borderTopRightRadius: 4,
+            padding: '0.55rem 0.8rem',
+            borderRadius: 16,
+            borderTopRightRadius: 5,
             background: 'var(--accent)',
             color: 'var(--accent-ink)',
-            fontSize: '0.9rem',
-            lineHeight: 1.45,
+            fontSize: '0.95rem',
+            lineHeight: 1.5,
           }}
         >
           {message.text}
@@ -123,52 +128,54 @@ function Bubble({
     )
   }
 
-  // Agent/tool bubbles carry the grid's own palette so span colours stay
-  // faithful and readable regardless of the app theme (terminal text is often
-  // near-white and would vanish on a light surface).
-  const isTool = message.role === 'tool'
-  const bg = grid?.background ?? '#1e1e1e'
-  const fg = grid?.foreground ?? '#ffffff'
-  return (
-    <div className="flex justify-start">
+  if (message.role === 'tool') {
+    return (
       <div
+        className="w-full overflow-hidden"
         style={{
-          maxWidth: '95%',
-          minWidth: 0,
-          borderRadius: 14,
-          borderTopLeftRadius: 4,
           border: '1px solid var(--border)',
-          background: bg,
-          color: fg,
-          overflow: 'hidden',
+          borderRadius: 12,
+          background: 'var(--surface-2)',
         }}
       >
-        {isTool && message.label && (
-          <div
-            className="px-2.5 py-1 text-xs font-semibold"
-            style={{
-              opacity: 0.7,
-              borderBottom: '1px solid rgba(127,127,127,0.25)',
-              fontFamily: 'var(--mono)',
-            }}
-          >
-            {message.label}
-          </div>
-        )}
         <div
-          className={isTool ? 'chat-pre' : 'chat-prose'}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold"
           style={{
-            padding: '0.5rem 0.7rem',
-            fontFamily: 'var(--mono)',
-            fontSize: '12.5px',
-            lineHeight: 1.5,
+            color: 'var(--accent)',
+            borderBottom: '1px solid var(--border)',
           }}
         >
-          {message.lines.map((line, row) => (
-            <div key={row}>{renderLine(line, grid?.styles ?? [], fg, bg)}</div>
-          ))}
+          <SquareTerminal size={13} style={{ flex: '0 0 auto' }} />
+          <span className="truncate">{message.label ?? 'Tool'}</span>
+        </div>
+        <div
+          className="chat-pre px-3 py-2"
+          style={{
+            fontFamily: 'var(--mono)',
+            fontSize: '12px',
+            lineHeight: 1.5,
+            color: 'var(--text)',
+            maxHeight: 260,
+            overflowY: 'auto',
+          }}
+        >
+          {cleanTool(message.text)}
         </div>
       </div>
+    )
+  }
+
+  // Assistant prose: flows on the page like a chat message, no bubble chrome.
+  return (
+    <div
+      className="chat-prose"
+      style={{
+        color: 'var(--text)',
+        fontSize: '0.95rem',
+        lineHeight: 1.6,
+      }}
+    >
+      {stripBullet(message.text)}
     </div>
   )
 }

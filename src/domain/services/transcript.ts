@@ -32,6 +32,13 @@ const BULLET = /^\s*[●⏺◉]\s+/
 const TOOL_CALL = /^\s*[●⏺◉]\s+([A-Za-z][\w.-]*)\(/
 const STATUS = /^\s*[✻✶✳✷✵✽∗*·]\s+(.+)$/
 const STATUS_MARK = /^\s*[✻✶✳✷✵✽∗*·]\s+/
+// Box banners (e.g. the agent welcome frame): a corner/junction edge, or a line
+// fully bracketed by verticals. Dropped so they do not read as a message.
+const FRAME_EDGE = /^\s*[╭╮╰╯├┤┬┴┼┌┐└┘╔╗╚╝╠╣╦╩╬]/
+const FRAME_SIDE = /^\s*[│┃╎╏┆┇].*[│┃╎╏┆┇]\s*$/
+function isFrame(text: string): boolean {
+  return FRAME_EDGE.test(text) || FRAME_SIDE.test(text)
+}
 
 // Bottom-of-screen chrome: the input box and the status footer cmux/agents draw
 // below the transcript. Trimmed from the tail so it never leaks into a message.
@@ -117,6 +124,7 @@ export function toChat(grid: TerminalGrid | undefined): Chat {
   for (let i = start; i < end; i++) {
     const { line, text } = items[i]
     if (INPUT_CARET.test(text)) continue
+    if (isFrame(text)) continue
     if (text.trim() === '') {
       if (s.current) s.pendingBlank = true
       continue

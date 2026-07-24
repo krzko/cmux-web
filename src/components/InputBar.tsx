@@ -68,9 +68,15 @@ export function InputBar({
           </div>
         )}
 
-        <div className="flex items-end gap-2">
+        <div
+          className="flex items-end gap-2 pl-3 pr-1.5 py-1.5"
+          style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 22,
+          }}
+        >
           <textarea
-            className="input"
             rows={1}
             placeholder={placeholder}
             value={text}
@@ -84,15 +90,39 @@ export function InputBar({
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
-            style={{ resize: 'none', maxHeight: 120 }}
+            className="flex-1"
+            style={{
+              resize: 'none',
+              maxHeight: 120,
+              minHeight: 28,
+              padding: '0.35rem 0',
+              border: 0,
+              outline: 'none',
+              background: 'transparent',
+              color: 'var(--text)',
+              fontSize: '0.95rem',
+              lineHeight: 1.4,
+            }}
           />
           <button
             type="button"
-            className="btn btn-primary"
             onClick={() => submit()}
             disabled={busy || !text.trim()}
             aria-label="Send"
-            style={{ flex: '0 0 auto', padding: '0 0.9rem' }}
+            style={{
+              flex: '0 0 auto',
+              width: 36,
+              height: 36,
+              borderRadius: 999,
+              border: 0,
+              background: text.trim() ? 'var(--accent)' : 'var(--surface-2)',
+              color: text.trim() ? 'var(--accent-ink)' : 'var(--muted)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: text.trim() ? 'pointer' : 'not-allowed',
+              transition: 'background-color 120ms ease',
+            }}
           >
             {busy ? <Loader2 size={18} className="spin" /> : <Send size={18} />}
           </button>
