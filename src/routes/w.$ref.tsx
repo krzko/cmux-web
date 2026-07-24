@@ -197,9 +197,10 @@ function DetailPage() {
   const title = workspace ? cleanTitle(workspace.title) : ref
 
   return (
-    // Fixed viewport height so the terminal is its own bounded scroll region
-    // (page-level scroll would open at the top and never follow the tail).
-    <div className="flex h-dvh flex-col overflow-hidden">
+    // Stable viewport height (svh, not dvh) so the shell does not resize as the
+    // mobile browser chrome shows/hides; the panel below is the only scroller, so
+    // the page never moves and the region follows the tail.
+    <div className="flex h-svh flex-col overflow-hidden">
       <AppBar
         title={
           <span className="flex items-center gap-2">

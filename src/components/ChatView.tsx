@@ -69,7 +69,7 @@ export function ChatView({
         <div
           ref={scrollRef}
           onScroll={onScroll}
-          className={`flex h-full flex-col gap-4 overflow-auto px-4 py-4 ${hidden ? 'redacted' : ''}`}
+          className={`flex h-full flex-col gap-4 overflow-auto overscroll-contain px-4 py-4 ${hidden ? 'redacted' : ''}`}
           style={{ background: 'var(--surface)' }}
         >
           {empty ? (
