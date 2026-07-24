@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, redirect } from '@tanstack/react-router'
 import { AlertTriangle, ArrowLeft } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AppBar } from '#/components/AppBar'
+import { ChatView } from '#/components/ChatView'
 import { HideContentToggle } from '#/components/HideContentToggle'
 import { InputBar } from '#/components/InputBar'
 import { PendingPanel } from '#/components/PendingPanel'
@@ -10,9 +11,11 @@ import { StatusIndicator } from '#/components/StatusIndicator'
 import { SurfaceTabs } from '#/components/SurfaceTabs'
 import { TerminalView } from '#/components/TerminalView'
 import { ThemeToggle } from '#/components/ThemeToggle'
+import { type ViewMode, ViewToggle } from '#/components/ViewToggle'
 import type { TerminalKey } from '#/domain/entities/interaction'
 import { isAgentBound, resolveAgent } from '#/domain/services/agent-registry'
 import { defaultSurface, groupSurfacesByPane } from '#/domain/services/layout'
+import { toChat } from '#/domain/services/transcript'
 import { useEventStream } from '#/hooks/use-event-stream'
 import { cleanTitle } from '#/lib/format'
 import { queryKeys } from '#/lib/query-keys'
@@ -44,6 +47,8 @@ export const Route = createFileRoute('/w/$ref')({
   component: DetailPage,
 })
 
+const VIEW_KEY = 'cmux:view-mode'
+
 function DetailPage() {
   const { ref } = Route.useParams()
   const queryClient = useQueryClient()
@@ -54,6 +59,16 @@ function DetailPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedSurfaceId, setSelectedSurfaceId] = useState<string>()
+  // Chat vs terminal rendering of the same transcript; the choice is remembered.
+  const [viewMode, setViewMode] = useState<ViewMode>('terminal')
+  useEffect(() => {
+    const stored = localStorage.getItem(VIEW_KEY)
+    if (stored === 'chat' || stored === 'terminal') setViewMode(stored)
+  }, [])
+  const changeView = (mode: ViewMode) => {
+    setViewMode(mode)
+    localStorage.setItem(VIEW_KEY, mode)
+  }
 
   const triage = useQuery({
     queryKey: queryKeys.triage,
@@ -105,6 +120,8 @@ function DetailPage() {
     refetchInterval: 2500,
     refetchIntervalInBackground: false,
   })
+
+  const chat = useMemo(() => toChat(terminal.data), [terminal.data])
 
   async function refreshTerminal() {
     setRefreshing(true)
@@ -216,11 +233,22 @@ function DetailPage() {
           }
         />
 
-        <TerminalView
-          grid={terminal.data}
-          loading={refreshing || terminal.isLoading}
-          onRefresh={refreshTerminal}
-        />
+        {viewMode === 'chat' ? (
+          <ChatView
+            chat={chat}
+            grid={terminal.data}
+            loading={refreshing || terminal.isLoading}
+            onRefresh={refreshTerminal}
+            toggle={<ViewToggle mode={viewMode} onChange={changeView} />}
+          />
+        ) : (
+          <TerminalView
+            grid={terminal.data}
+            loading={refreshing || terminal.isLoading}
+            onRefresh={refreshTerminal}
+            toggle={<ViewToggle mode={viewMode} onChange={changeView} />}
+          />
+        )}
       </main>
 
       <InputBar

@@ -225,6 +225,18 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
+/* Chat bubbles: prose wraps to width, tool/code keeps alignment and scrolls. */
+.chat-prose {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.chat-pre {
+  white-space: pre;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .redacted {
   filter: blur(6px);
   transition: filter 120ms ease;
