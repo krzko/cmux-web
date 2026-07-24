@@ -75,6 +75,56 @@ function runsText(line: ChatLine): string {
     .replace(/\s+$/, '')
 }
 
+// Remove leading whitespace-only runs and trim the first content run's indent.
+function stripRunsStart(line: ChatLine): ChatLine {
+  const out = [...line]
+  while (out.length && out[0].text.trim() === '') out.shift()
+  if (out.length) out[0] = { ...out[0], text: out[0].text.replace(/^\s+/, '') }
+  return out
+}
+
+function trimRunsEnd(line: ChatLine): ChatLine {
+  const out = [...line]
+  while (out.length && out[out.length - 1].text.trim() === '') out.pop()
+  const last = out.length - 1
+  if (last >= 0)
+    out[last] = { ...out[last], text: out[last].text.replace(/\s+$/, '') }
+  return out
+}
+
+// Reflow terminal-wrapped rows into paragraphs. Agents wrap prose near the full
+// width, so a row that reaches within a margin of the right edge continues on the
+// next row; a shorter row is a real line break. Shell output (far shorter than
+// the width) is never joined. Styling is preserved across the join.
+export function reflowProse(lines: ChatLine[], columns: number): ChatLine[] {
+  const threshold = columns - Math.max(8, Math.round(columns * 0.08))
+  const paras: ChatLine[] = []
+  let cur: ChatLine = []
+  let prevFilled = false
+  const flush = () => {
+    const t = trimRunsEnd(cur)
+    if (t.length) paras.push(t)
+    cur = []
+  }
+  for (const line of lines) {
+    const width = runsText(line).length
+    const stripped = stripRunsStart(line)
+    if (!stripped.length) {
+      flush()
+      prevFilled = false
+      continue
+    }
+    if (cur.length && prevFilled) cur.push({ text: ' ' }, ...stripped)
+    else {
+      flush()
+      cur = [...stripped]
+    }
+    prevFilled = width >= threshold
+  }
+  flush()
+  return paras
+}
+
 // Drop leading characters matching `re` from a styled line, crossing runs.
 function stripLead(line: ChatLine, re: RegExp): ChatLine {
   const match = line
@@ -173,11 +223,13 @@ export function toChat(grid: TerminalGrid | undefined): Chat {
   const flush = () => {
     const cur = s.current
     if (cur?.lines.length) {
-      // Strip the role marker from the styled lines so it never renders.
+      // Strip the role marker from the styled lines so it never renders, then
+      // reflow assistant prose into paragraphs (tools keep their raw lines).
       if (cur.role === 'user') {
         cur.lines[0] = stripLead(cur.lines[0], /^\s*>\s?/)
       } else if (cur.role === 'agent') {
         cur.lines[0] = stripLead(cur.lines[0], /^\s*[●⏺◉]\s+/)
+        cur.lines = reflowProse(cur.lines, grid.columns)
       } else if (cur.role === 'tool') {
         cur.lines[0] = stripLead(cur.lines[0], /^\s*[●⏺◉]\s+/)
         cur.lines = cur.lines.map((l) => stripLead(l, /^\s*⎿\s?/))

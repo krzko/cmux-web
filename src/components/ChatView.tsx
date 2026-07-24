@@ -69,7 +69,7 @@ export function ChatView({
         <div
           ref={scrollRef}
           onScroll={onScroll}
-          className={`flex h-full flex-col gap-3 overflow-auto px-3 py-4 ${hidden ? 'redacted' : ''}`}
+          className={`flex h-full flex-col gap-4 overflow-auto px-4 py-4 ${hidden ? 'redacted' : ''}`}
           style={{ background: 'var(--surface)' }}
         >
           {empty ? (
@@ -108,24 +108,31 @@ function runCss(style?: ChatStyle): CSSProperties {
   return css
 }
 
-// Styled lines; a blank line is a small paragraph gap, not a full empty row.
-function StyledLines({ lines, pre }: { lines: ChatLine[]; pre?: boolean }) {
+function Runs({ line }: { line: ChatLine }) {
   return (
     <>
-      {lines.map((line, row) =>
-        line.length === 0 ? (
-          <div key={row} style={{ height: '0.4em' }} />
-        ) : (
-          <div key={row} className={pre ? 'chat-pre' : 'chat-prose'}>
-            {line.map((run, col) => (
-              <span key={col} style={runCss(run.style)}>
-                {run.text}
-              </span>
-            ))}
-          </div>
-        ),
-      )}
+      {line.map((run, i) => (
+        <span key={i} style={runCss(run.style)}>
+          {run.text}
+        </span>
+      ))}
     </>
+  )
+}
+
+// Assistant prose: reflowed paragraphs that flow and wrap to the screen width.
+function Prose({ paragraphs }: { paragraphs: ChatLine[] }) {
+  return (
+    <div
+      className="flex flex-col gap-2.5"
+      style={{ color: 'var(--text)', fontSize: '1rem', lineHeight: 1.6 }}
+    >
+      {paragraphs.map((p, i) => (
+        <p key={i} className="chat-flow" style={{ margin: 0 }}>
+          <Runs line={p} />
+        </p>
+      ))}
+    </div>
   )
 }
 
@@ -149,12 +156,12 @@ function Bubble({ message }: { message: ChatMessage }) {
           className="chat-prose"
           style={{
             maxWidth: '85%',
-            padding: '0.55rem 0.8rem',
-            borderRadius: 16,
+            padding: '0.55rem 0.85rem',
+            borderRadius: 18,
             borderTopRightRadius: 5,
             background: 'var(--accent)',
             color: 'var(--accent-ink)',
-            fontSize: '0.95rem',
+            fontSize: '1rem',
             lineHeight: 1.5,
           }}
         >
@@ -195,18 +202,16 @@ function Bubble({ message }: { message: ChatMessage }) {
             overflowY: 'auto',
           }}
         >
-          <StyledLines lines={message.lines} pre />
+          {message.lines.map((line, row) => (
+            <div key={row} className="chat-pre">
+              {line.length === 0 ? ' ' : <Runs line={line} />}
+            </div>
+          ))}
         </div>
       </div>
     )
   }
 
-  // Assistant prose: flows on the page like a chat message, no bubble chrome.
-  return (
-    <div
-      style={{ color: 'var(--text)', fontSize: '0.95rem', lineHeight: 1.55 }}
-    >
-      <StyledLines lines={message.lines} />
-    </div>
-  )
+  // Assistant prose: flowing paragraphs, no bubble chrome.
+  return <Prose paragraphs={message.lines} />
 }

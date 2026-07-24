@@ -105,14 +105,40 @@ describe('toChat', () => {
     expect(chat.messages[1].role).toBe('agent')
   })
 
-  it('keeps a single inner blank line as spacing within a message', () => {
+  it('splits agent prose into paragraphs on a blank line', () => {
     const chat = toChat(grid(['  para one', '', '  para two']))
     expect(chat.messages).toHaveLength(1)
-    expect(chat.messages[0].lines).toHaveLength(3)
-    expect(chat.messages[0].text).toBe('  para one\n\n  para two')
+    expect(chat.messages[0].lines).toHaveLength(2)
+    expect(chat.messages[0].text).toBe('para one\npara two')
   })
 
-  it('falls back to one agent bubble when no markers are present', () => {
+  it('reflows wrapped rows into one paragraph but keeps short lines apart', () => {
+    // Width 80: a row reaching the right edge continues; short rows do not.
+    const wrapped = `${'wrapped prose that reaches the far right edge of the terminal here x'.padEnd(76, 'x')}`
+    const chat = toChat(
+      grid([
+        wrapped,
+        'and the tail.',
+        '',
+        'a short line',
+        'another short line',
+      ]),
+    )
+    const agent = chat.messages[0]
+    expect(agent.role).toBe('agent')
+    // First paragraph: wrapped row + its continuation joined.
+    expect(agent.lines[0].map((r) => r.text).join('')).toContain(
+      'and the tail.',
+    )
+    // Blank then two short, non-filling lines stay as separate paragraphs.
+    expect(agent.lines).toHaveLength(3)
+    expect(agent.lines[1].map((r) => r.text).join('')).toBe('a short line')
+    expect(agent.lines[2].map((r) => r.text).join('')).toBe(
+      'another short line',
+    )
+  })
+
+  it('does not join distinct shell output lines (fallback)', () => {
     const chat = toChat(grid(['just some', 'plain shell', 'output here']))
     expect(chat.messages).toHaveLength(1)
     expect(chat.messages[0].role).toBe('agent')
