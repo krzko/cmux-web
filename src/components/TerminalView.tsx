@@ -1,20 +1,11 @@
-import { ChevronDown, Loader2, RefreshCw } from 'lucide-react'
-import {
-  type CSSProperties,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from 'react'
-import type {
-  TerminalGrid,
-  TerminalLine,
-  TerminalStyle,
-} from '#/domain/entities/terminal-grid'
+import { Loader2, RefreshCw } from 'lucide-react'
+import { type ReactNode, useCallback, useEffect, useState } from 'react'
+import type { TerminalGrid } from '#/domain/entities/terminal-grid'
+import { useFollowTail } from '#/hooks/use-follow-tail'
 import { useHideContent } from '#/hooks/use-hide-content'
 import { relativeTime } from '#/lib/format'
+import { renderLine } from '#/lib/terminal-render'
+import { JumpToBottom } from './JumpToBottom'
 
 const FONT_KEY = 'cmux:terminal-font'
 const FONT_DEFAULT = 13
@@ -31,16 +22,16 @@ export function TerminalView({
   grid,
   loading,
   onRefresh,
+  toggle,
 }: {
   grid?: TerminalGrid
   loading: boolean
   onRefresh: () => void
+  toggle: ReactNode
 }) {
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const followRef = useRef(true)
-  const [showJump, setShowJump] = useState(false)
   const [fontSize, setFontSize] = useState(FONT_DEFAULT)
   const { hidden } = useHideContent()
+  const { scrollRef, showJump, onScroll, jumpToBottom } = useFollowTail(grid)
 
   useEffect(() => {
     const stored = Number(localStorage.getItem(FONT_KEY))
@@ -55,29 +46,6 @@ export function TerminalView({
     })
   }, [])
 
-  const onScroll = useCallback(() => {
-    const el = scrollRef.current
-    if (!el) return
-    const distance = el.scrollHeight - el.scrollTop - el.clientHeight
-    const atBottom = distance < 40
-    followRef.current = atBottom
-    setShowJump(!atBottom)
-  }, [])
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-run on each new grid to follow the tail
-  useLayoutEffect(() => {
-    const el = scrollRef.current
-    if (el && followRef.current) el.scrollTop = el.scrollHeight
-  }, [grid])
-
-  const jumpToBottom = useCallback(() => {
-    const el = scrollRef.current
-    if (!el) return
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-    followRef.current = true
-    setShowJump(false)
-  }, [])
-
   const bg = grid?.background ?? 'var(--surface-2)'
   const fg = grid?.foreground ?? 'var(--text)'
   const empty = !grid || grid.lines.length === 0
@@ -88,13 +56,17 @@ export function TerminalView({
         className="flex items-center justify-between gap-2 px-3 py-2"
         style={{ borderBottom: '1px solid var(--border)' }}
       >
-        <span
-          className="min-w-0 truncate text-xs font-semibold"
-          style={{ color: 'var(--muted)' }}
-        >
-          Terminal
-          {grid ? ` · updated ${relativeTime(grid.fetchedAt)} ago` : ''}
-        </span>
+        <div className="flex min-w-0 items-center gap-2">
+          {toggle}
+          {grid && (
+            <span
+              className="truncate text-xs"
+              style={{ color: 'var(--muted)' }}
+            >
+              updated {relativeTime(grid.fetchedAt)} ago
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -160,84 +132,8 @@ export function TerminalView({
           )}
         </div>
 
-        {showJump && (
-          <button
-            type="button"
-            onClick={jumpToBottom}
-            aria-label="Scroll to latest"
-            style={{
-              position: 'absolute',
-              right: 12,
-              bottom: 12,
-              width: 40,
-              height: 40,
-              borderRadius: 999,
-              border: '1px solid var(--accent)',
-              background: 'var(--accent)',
-              color: 'var(--accent-ink)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: 'var(--shadow)',
-              cursor: 'pointer',
-            }}
-          >
-            <ChevronDown size={20} />
-          </button>
-        )}
+        {showJump && <JumpToBottom onClick={jumpToBottom} />}
       </div>
     </div>
   )
-}
-
-// Rebuild a line from its spans, filling the column gaps (blank cells cmux omits)
-// with spaces so alignment matches the terminal.
-function renderLine(
-  line: TerminalLine,
-  styles: TerminalStyle[],
-  fg: string,
-  bg: string,
-): ReactNode {
-  if (line.length === 0) return ' '
-  const nodes: ReactNode[] = []
-  let cursor = 0
-  line.forEach((span, index) => {
-    if (span.col > cursor) nodes.push(' '.repeat(span.col - cursor))
-    nodes.push(
-      <span key={index} style={spanStyle(styles[span.style], fg, bg)}>
-        {span.text}
-      </span>,
-    )
-    cursor = span.col + (span.width || span.text.length)
-  })
-  return nodes
-}
-
-// Resolve a span's style into CSS, honouring inverse/bold/faint/italic/decoration.
-function spanStyle(
-  style: TerminalStyle | undefined,
-  gridFg: string,
-  gridBg: string,
-): CSSProperties {
-  if (!style) return { color: gridFg }
-  let fg = style.fg || gridFg
-  let bg = style.bg || gridBg
-  if (style.inverse) {
-    const swap = fg
-    fg = bg
-    bg = swap
-  }
-  const css: CSSProperties = { color: fg }
-  if (bg && bg.toLowerCase() !== gridBg.toLowerCase()) css.background = bg
-  if (style.bold) css.fontWeight = 700
-  if (style.faint) css.opacity = 0.6
-  if (style.italic) css.fontStyle = 'italic'
-  const decoration = [
-    style.underline ? 'underline' : '',
-    style.strike ? 'line-through' : '',
-  ]
-    .filter(Boolean)
-    .join(' ')
-  if (decoration) css.textDecoration = decoration
-  return css
 }

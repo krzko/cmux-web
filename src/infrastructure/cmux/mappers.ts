@@ -150,6 +150,8 @@ export function toFeedItem(o: Raw): FeedItem {
 }
 
 function toStyle(o: Raw): TerminalStyle {
+  const fgSource = strOf(o, 'foreground_source')
+  const bgSource = strOf(o, 'background_source')
   return {
     fg: strOf(o, 'foreground') ?? '#ffffff',
     bg: strOf(o, 'background') ?? '#000000',
@@ -159,6 +161,8 @@ function toStyle(o: Raw): TerminalStyle {
     underline: boolOf(o, 'underline'),
     strike: boolOf(o, 'strikethrough'),
     inverse: boolOf(o, 'inverse'),
+    fgDefault: fgSource ? fgSource === 'default' : undefined,
+    bgDefault: bgSource ? bgSource === 'default' : undefined,
   }
 }
 
