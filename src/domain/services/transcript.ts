@@ -29,18 +29,55 @@ export function lineText(line: TerminalLine): string {
   return out.replace(/\s+$/, '')
 }
 
-// Resolve a terminal style into a self-contained chat style. Default-foreground
-// text carries no colour so it inherits the app's readable text colour; only
-// real ANSI colours and text weight/decoration are kept (bg/inverse dropped so
-// prose stays clean). Returns undefined when nothing notable is set.
+const rgb = (hex: string): [number, number, number] | undefined => {
+  const m = /^#?([\da-f]{6})$/i.exec(hex.trim())
+  if (!m) return undefined
+  const n = Number.parseInt(m[1], 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
+// Grey/black/white: carries shading, not hue.
+const achromatic = (hex: string): boolean => {
+  const c = rgb(hex)
+  return c ? Math.max(...c) - Math.min(...c) <= 16 : false
+}
+// Plain white text. On a terminal this reads as "default text", so the chat
+// inherits the app colour rather than painting white on a light surface.
+const nearWhite = (hex: string): boolean => {
+  const c = rgb(hex)
+  return c ? c.every((v) => v >= 0xe6) : false
+}
+
+// Resolve a terminal style into a self-contained chat style, using cmux's
+// colour source flags when present (hex comparison otherwise). Default and
+// plain-white foregrounds inherit the app's text colour so they stay readable
+// in both themes; a shaded (achromatic) background means inline code, while a
+// coloured background is real fill such as diff highlighting.
 function toChatStyle(
   st: TerminalStyle | undefined,
   defaultFg: string,
+  defaultBg: string,
 ): ChatStyle | undefined {
   if (!st) return undefined
+  let fg = st.fg
+  let bg = st.bg
+  let fgDefault = st.fgDefault ?? (fg ? same(fg, defaultFg) : true)
+  let bgDefault = st.bgDefault ?? (bg ? same(bg, defaultBg) : true)
+  if (st.inverse) {
+    // A swapped pair is a deliberate highlight, so it renders as a chip; only a
+    // genuine hue survives as the text colour (a swapped-in grey would just
+    // fight the theme).
+    ;[fg, bg] = [bg, fg]
+    fgDefault = achromatic(fg)
+    bgDefault = false
+  }
+
   const style: ChatStyle = {}
-  if (st.fg && st.fg.toLowerCase() !== defaultFg.toLowerCase())
-    style.color = st.fg
+  if (fg && !fgDefault && !nearWhite(fg)) style.color = fg
+  if (bg && !bgDefault) {
+    if (achromatic(bg)) style.code = true
+    else style.background = bg
+  }
   if (st.bold) style.bold = true
   if (st.faint) style.faint = true
   if (st.italic) style.italic = true
@@ -54,6 +91,7 @@ function toRuns(
   line: TerminalLine,
   styles: TerminalStyle[],
   defaultFg: string,
+  defaultBg: string,
 ): ChatLine {
   const runs: ChatLine = []
   let cursor = 0
@@ -61,7 +99,7 @@ function toRuns(
     if (span.col > cursor) runs.push({ text: ' '.repeat(span.col - cursor) })
     runs.push({
       text: span.text,
-      style: toChatStyle(styles[span.style], defaultFg),
+      style: toChatStyle(styles[span.style], defaultFg, defaultBg),
     })
     cursor = span.col + (span.width || span.text.length)
   }
@@ -125,14 +163,9 @@ export function reflowProse(lines: ChatLine[], columns: number): ChatLine[] {
   return paras
 }
 
-// Drop leading characters matching `re` from a styled line, crossing runs.
-function stripLead(line: ChatLine, re: RegExp): ChatLine {
-  const match = line
-    .map((r) => r.text)
-    .join('')
-    .match(re)
-  if (!match?.[0]) return line
-  let n = match[0].length
+// Drop the first n characters of a styled line, crossing runs.
+function dropChars(line: ChatLine, count: number): ChatLine {
+  let n = count
   const out: ChatLine = []
   for (const run of line) {
     if (n <= 0) {
@@ -147,10 +180,39 @@ function stripLead(line: ChatLine, re: RegExp): ChatLine {
   return out
 }
 
+// Drop leading characters matching `re` from a styled line, crossing runs.
+function stripLead(line: ChatLine, re: RegExp): ChatLine {
+  const match = line
+    .map((r) => r.text)
+    .join('')
+    .match(re)
+  return match?.[0] ? dropChars(line, match[0].length) : line
+}
+
+// Remove the indent the agent adds under a tool call, so code cards start at
+// column zero while relative indentation inside the output is preserved.
+function dedent(lines: ChatLine[]): ChatLine[] {
+  let min = Number.POSITIVE_INFINITY
+  for (const line of lines) {
+    const text = runsText(line)
+    if (text.trim() === '') continue
+    min = Math.min(min, text.length - text.trimStart().length)
+  }
+  if (!Number.isFinite(min) || min <= 0) return lines
+  return lines.map((l) => (runsText(l).trim() === '' ? l : dropChars(l, min)))
+}
+
 const RULE = /^[\s─━═╌╍┄┅┈┉│┃▁▔]+$/
 const PROMPT_EMPTY = /^\s*[>❯]\s*$/
 const INPUT_CARET = /^\s*❯/
-const USER = /^\s*>\s+(\S.*)$/
+// A submitted user turn. The live input box carries the same caret but sits in
+// the trailing chrome, which is trimmed before this runs.
+const USER = /^\s*[>❯]\s+(\S.*)$/
+const USER_MARK = /^\s*[>❯]\s?/
+// Claude draws a submitted prompt in a shaded box, so wrapped continuation rows
+// carry the same shading; that is how they stay attached to the user turn.
+const isShaded = (line: ChatLine): boolean =>
+  line.find((r) => r.text.trim() !== '')?.style?.code === true
 // A bullet starts a new assistant block; it is a tool only when the bullet is
 // followed by Name(...) (e.g. Bash(...), Read(...)). Plain bullet text is prose.
 const BULLET = /^\s*[●⏺◉]\s+/
@@ -200,9 +262,8 @@ function toolLabel(text: string): string {
 export function toChat(grid: TerminalGrid | undefined): Chat {
   if (!grid || grid.lines.length === 0) return { messages: [] }
 
-  const fg = grid.foreground
   const items = grid.lines.map((line) => ({
-    line: toRuns(line, grid.styles, fg),
+    line: toRuns(line, grid.styles, grid.foreground, grid.background),
     text: lineText(line),
   }))
 
@@ -226,13 +287,15 @@ export function toChat(grid: TerminalGrid | undefined): Chat {
       // Strip the role marker from the styled lines so it never renders, then
       // reflow assistant prose into paragraphs (tools keep their raw lines).
       if (cur.role === 'user') {
-        cur.lines[0] = stripLead(cur.lines[0], /^\s*>\s?/)
+        cur.lines[0] = stripLead(cur.lines[0], USER_MARK)
+        cur.lines = reflowProse(cur.lines, grid.columns)
       } else if (cur.role === 'agent') {
         cur.lines[0] = stripLead(cur.lines[0], /^\s*[●⏺◉]\s+/)
         cur.lines = reflowProse(cur.lines, grid.columns)
       } else if (cur.role === 'tool') {
-        cur.lines[0] = stripLead(cur.lines[0], /^\s*[●⏺◉]\s+/)
-        cur.lines = cur.lines.map((l) => stripLead(l, /^\s*⎿\s?/))
+        const [call, ...rest] = cur.lines.map((l) => stripLead(l, /^\s*⎿\s?/))
+        // Dedent the output only; the call line is already at column zero.
+        cur.lines = [stripLead(call, /^\s*[●⏺◉]\s+/), ...dedent(rest)]
       }
       cur.text = cur.lines.map(runsText).join('\n').replace(/\n+$/, '')
       messages.push(cur)
@@ -254,10 +317,13 @@ export function toChat(grid: TerminalGrid | undefined): Chat {
 
   for (let i = start; i < end; i++) {
     const { line, text } = items[i]
-    if (INPUT_CARET.test(text)) continue
     if (isFrame(text)) continue
     if (text.trim() === '') {
-      if (s.current) s.pendingBlank = true
+      // A blank line ends a prose block, so the transcript splits into separate
+      // chat messages instead of one terminal-like run. Code cards keep their
+      // internal blank lines (a gap inside output is not a new message).
+      if (s.current?.role === 'tool') s.pendingBlank = true
+      else flush()
       continue
     }
     if (isStatus(text)) {
@@ -269,6 +335,11 @@ export function toChat(grid: TerminalGrid | undefined): Chat {
     if (USER.test(text)) {
       if (s.current?.role === 'user') append(line)
       else open(i, 'user', line)
+      continue
+    }
+    // A shaded row right after a user turn is that prompt wrapping, not a reply.
+    if (s.current?.role === 'user' && isShaded(line)) {
+      append(line)
       continue
     }
     if (BULLET.test(text)) {

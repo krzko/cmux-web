@@ -4,10 +4,15 @@
 // survive history accumulation across snapshots (style tables are per-snapshot).
 export type ChatRole = 'user' | 'agent' | 'tool' | 'status'
 
-// Resolved span style. `color` is set only when it differs from the terminal's
-// default foreground, so default text inherits the app's readable text colour.
+// Resolved span style. Semantics, not paint: the view maps these to the current
+// theme. `color` is set only for a genuine terminal colour (default-foreground
+// and plain-white text inherit the app's readable text colour instead). `code`
+// marks a span the terminal shaded as inline code, so it renders as a chip.
+// `background` carries a real colour fill (e.g. diff highlighting) only.
 export interface ChatStyle {
   color?: string
+  background?: string
+  code?: boolean
   bold?: boolean
   faint?: boolean
   italic?: boolean

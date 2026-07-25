@@ -95,6 +95,7 @@ function runCss(style?: ChatStyle): CSSProperties {
   if (!style) return {}
   const css: CSSProperties = {}
   if (style.color) css.color = style.color
+  if (style.background) css.background = style.background
   if (style.bold) css.fontWeight = 700
   if (style.faint) css.opacity = 0.6
   if (style.italic) css.fontStyle = 'italic'
@@ -108,11 +109,17 @@ function runCss(style?: ChatStyle): CSSProperties {
   return css
 }
 
-function Runs({ line }: { line: ChatLine }) {
+// `inCode` suppresses chip decoration inside code cards, where the card is
+// already the code context and padding would break column alignment.
+function Runs({ line, inCode }: { line: ChatLine; inCode?: boolean }) {
   return (
     <>
       {line.map((run, i) => (
-        <span key={i} style={runCss(run.style)}>
+        <span
+          key={i}
+          className={run.style?.code && !inCode ? 'chat-code' : undefined}
+          style={runCss(run.style)}
+        >
           {run.text}
         </span>
       ))}
@@ -204,7 +211,7 @@ function Bubble({ message }: { message: ChatMessage }) {
         >
           {message.lines.map((line, row) => (
             <div key={row} className="chat-pre">
-              {line.length === 0 ? ' ' : <Runs line={line} />}
+              {line.length === 0 ? ' ' : <Runs line={line} inCode />}
             </div>
           ))}
         </div>

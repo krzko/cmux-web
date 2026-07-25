@@ -10,6 +10,10 @@ export interface TerminalStyle {
   underline: boolean
   strike: boolean
   inverse: boolean
+  // cmux reports whether a colour is the terminal default or explicitly set
+  // (rgb/palette). Undefined on older cmux, where callers compare hex instead.
+  fgDefault?: boolean
+  bgDefault?: boolean
 }
 
 export interface TerminalSpan {

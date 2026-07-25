@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type {
   TerminalGrid,
   TerminalLine,
+  TerminalStyle,
 } from '#/domain/entities/terminal-grid'
 import { lineText, toChat } from './transcript'
 
@@ -105,11 +106,18 @@ describe('toChat', () => {
     expect(chat.messages[1].role).toBe('agent')
   })
 
-  it('splits agent prose into paragraphs on a blank line', () => {
+  it('splits prose into separate messages on a blank line', () => {
     const chat = toChat(grid(['  para one', '', '  para two']))
+    expect(chat.messages).toHaveLength(2)
+    expect(chat.messages.map((m) => m.text)).toEqual(['para one', 'para two'])
+  })
+
+  it('keeps blank lines inside a code card instead of splitting it', () => {
+    const chat = toChat(grid(['● Bash(git log)', '  ⎿ first', '', '  second']))
     expect(chat.messages).toHaveLength(1)
-    expect(chat.messages[0].lines).toHaveLength(2)
-    expect(chat.messages[0].text).toBe('para one\npara two')
+    expect(chat.messages[0].role).toBe('tool')
+    expect(chat.messages[0].text).toContain('first')
+    expect(chat.messages[0].text).toContain('second')
   })
 
   it('reflows wrapped rows into one paragraph but keeps short lines apart', () => {
@@ -124,18 +132,19 @@ describe('toChat', () => {
         'another short line',
       ]),
     )
-    const agent = chat.messages[0]
-    expect(agent.role).toBe('agent')
-    // First paragraph: wrapped row + its continuation joined.
-    expect(agent.lines[0].map((r) => r.text).join('')).toContain(
-      'and the tail.',
-    )
-    // Blank then two short, non-filling lines stay as separate paragraphs.
-    expect(agent.lines).toHaveLength(3)
-    expect(agent.lines[1].map((r) => r.text).join('')).toBe('a short line')
-    expect(agent.lines[2].map((r) => r.text).join('')).toBe(
-      'another short line',
-    )
+    expect(chat.messages).toHaveLength(2)
+    // First message: wrapped row + its continuation joined into one paragraph.
+    expect(chat.messages[0].lines).toHaveLength(1)
+    expect(chat.messages[0].text).toContain('and the tail.')
+    // Second message: short, non-filling rows stay separate lines.
+    expect(chat.messages[1].lines).toHaveLength(2)
+    expect(chat.messages[1].text).toBe('a short line\nanother short line')
+  })
+
+  it('dedents tool output so code cards start at column zero', () => {
+    const chat = toChat(grid(['● Bash(ls)', '      alpha', '        beta']))
+    expect(chat.messages[0].role).toBe('tool')
+    expect(chat.messages[0].text).toBe('Bash(ls)\nalpha\n  beta')
   })
 
   it('does not join distinct shell output lines (fallback)', () => {
@@ -143,5 +152,92 @@ describe('toChat', () => {
     expect(chat.messages).toHaveLength(1)
     expect(chat.messages[0].role).toBe('agent')
     expect(chat.messages[0].lines).toHaveLength(3)
+  })
+})
+
+// A grid whose single line carries one span using style id 1.
+function styledGrid(style: Partial<TerminalStyle>): TerminalGrid {
+  const base: TerminalStyle = {
+    fg: '#FFFFFF',
+    bg: '#1E1E1E',
+    bold: false,
+    faint: false,
+    italic: false,
+    underline: false,
+    strike: false,
+    inverse: false,
+  }
+  return {
+    surfaceRef: 's',
+    columns: 80,
+    background: '#1E1E1E',
+    foreground: '#FFFFFF',
+    styles: [base, { ...base, ...style }],
+    lines: [[{ col: 0, width: 5, text: 'hello', style: 1 }]],
+    fetchedAt: '2026-07-24T00:00:00.000Z',
+  }
+}
+const firstStyle = (g: TerminalGrid) => toChat(g).messages[0].lines[0][0].style
+
+describe('toChat styling', () => {
+  it('inherits the app colour for default foreground', () => {
+    expect(firstStyle(styledGrid({ fgDefault: true }))?.color).toBeUndefined()
+  })
+
+  it('inherits the app colour for explicitly white text', () => {
+    // Plain white reads as default text on a terminal, so it must not be
+    // painted white onto a light surface.
+    const style = firstStyle(styledGrid({ fg: '#FFFFFF', fgDefault: false }))
+    expect(style?.color).toBeUndefined()
+  })
+
+  it('keeps a genuine terminal colour', () => {
+    expect(
+      firstStyle(styledGrid({ fg: '#B1B9F9', fgDefault: false }))?.color,
+    ).toBe('#B1B9F9')
+  })
+
+  it('marks a shaded background as inline code, not a colour fill', () => {
+    const style = firstStyle(styledGrid({ bg: '#373737', bgDefault: false }))
+    expect(style?.code).toBe(true)
+    expect(style?.background).toBeUndefined()
+  })
+
+  it('keeps a coloured background as a fill (diff highlighting)', () => {
+    const style = firstStyle(styledGrid({ bg: '#2E5D33', bgDefault: false }))
+    expect(style?.background).toBe('#2E5D33')
+    expect(style?.code).toBeUndefined()
+  })
+
+  it('carries bold, italic, underline, strike, and faint', () => {
+    const style = firstStyle(
+      styledGrid({
+        bold: true,
+        italic: true,
+        underline: true,
+        strike: true,
+        faint: true,
+      }),
+    )
+    expect(style).toMatchObject({
+      bold: true,
+      italic: true,
+      underline: true,
+      strike: true,
+      faint: true,
+    })
+  })
+
+  it('swaps foreground and background on inverse', () => {
+    const style = firstStyle(
+      styledGrid({ inverse: true, fgDefault: true, bgDefault: true }),
+    )
+    // Default bg becomes the text colour; the default fg becomes a shaded chip.
+    expect(style?.code).toBe(true)
+  })
+
+  it('falls back to hex comparison when cmux sends no source flags', () => {
+    expect(firstStyle(styledGrid({ fg: '#FFFFFF' }))?.color).toBeUndefined()
+    expect(firstStyle(styledGrid({ fg: '#26A439' }))?.color).toBe('#26A439')
   })
 })
